@@ -18,6 +18,7 @@ use std::{
 use arcropolis_api::Event;
 use log::LevelFilter;
 use semver::Version;
+use skyline_config::{open_preselected_user, get_user_id, close_user, UserHandle};
 use smash_arc::{ArcLookup, LoadedSearchSection, SearchLookup};
 use thiserror::Error;
 
@@ -294,6 +295,44 @@ pub fn main() {
     if let Err(err) = logging::init(LevelFilter::from_str(&config::logger_level()).unwrap_or(LevelFilter::Warn)) {
         println!("[arcropolis] Failed to initialize logger. Reason: {:?}", err);
     }
+
+    let mut uid = nn::account::Uid { id: [0; 2] };
+        let mut handle = UserHandle::new();
+
+        unsafe {
+            // It is safe to initialize multiple times.
+            nn::account::Initialize();
+
+            // This provides a UserHandle and sets the User in a Open state to be used.
+            if !open_preselected_user(&mut handle) {
+                panic!("OpenPreselectedUser returned false");
+            }
+
+            // Obtain the UID for this user
+            get_user_id(&mut uid, &handle);
+
+            nn::fs::MountSaveData(skyline::c_str("save\0"), &uid);
+
+            std::fs::read_dir("save:/save_data/").unwrap().for_each(|entry| {
+                let entry = entry.unwrap();
+
+                println!("Path: {}", entry.path().display());
+            });
+
+            let save = std::fs::read("save:/save_data/system_data.bin").unwrap();
+
+            skyline::logging::hex_dump_ptr(save.as_ptr().offset(0x3c6090));
+
+            let language = save[0x3c6098] as usize;
+            let region = save[0x3c6099] as usize;
+
+            println!("Region: {:?}", smash_arc::Region::from(language + region + 1));
+
+            nn::fs::Unmount(skyline::c_str("save\0"));
+
+            // This closes the UserHandle, making it unusable, and sets the User in a Closed state.
+            close_user(&handle);
+        }
 
     // if ninput::any::is_down(ninput::Buttons::PLUS) {
     //     println!("input");
